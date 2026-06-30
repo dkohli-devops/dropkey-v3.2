@@ -1,0 +1,108 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# terraform.tfvars.example — Example Terraform Variables
+#
+# Copy this file to terraform.tfvars and customize for your environment
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ═════════════════════════════════════════════════════════════════════════════
+# AWS Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+aws_region     = "us-east-1"
+environment    = "production"
+project_name   = "dropkey"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# VPC Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
+bastion_cidr       = "203.0.113.0/32"  # Replace with your office/VPN IP
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ALB Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Get ACM certificate ARN:
+# aws acm list-certificates --region us-east-1 --query 'CertificateSummaryList[0].CertificateArn'
+certificate_arn            = "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
+enable_deletion_protection = true
+
+# ═════════════════════════════════════════════════════════════════════════════
+# EC2 Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+# Ubuntu 22.04 LTS AMIs by region (update as needed)
+ami_id       = "ami-0c55b159cbfafe1f0"  # us-east-1
+instance_type = "t3.medium"
+root_volume_size = 30
+
+# Docker configuration
+docker_image    = "dropkey"
+docker_registry = "ghcr.io/yourorg"
+
+# Environment variables for application
+environment_variables = {
+  DROPKEY_ENVIRONMENT = "production"
+  DROPKEY_DEBUG       = "false"
+  DROPKEY_LOG_LEVEL   = "INFO"
+  DROPKEY_DATABASE_ENABLED = "true"
+  DROPKEY_REDIS_ENABLED    = "true"
+}
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Auto Scaling Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+asg_min_size         = 3
+asg_max_size         = 10
+asg_desired_capacity = 3
+cpu_target_value     = 70  # Scale up when CPU > 70%, down when < 70%
+
+# ═════════════════════════════════════════════════════════════════════════════
+# RDS PostgreSQL Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+postgres_version    = "15.3"
+db_instance_class   = "db.t3.large"      # 2 vCPU, 8GB RAM
+db_allocated_storage = 100               # GB
+
+# Database credentials (use AWS Secrets Manager in production!)
+db_name     = "dropkey"
+db_username = "dbadmin"
+db_password = "GenerateStrongPasswordHere123!@#"  # CHANGE THIS!
+
+# RDS options
+db_multi_az            = true             # Multi-AZ deployment
+db_backup_retention_days = 30             # Backup retention
+db_backup_window       = "02:00-03:00"    # UTC time
+db_maintenance_window  = "sun:03:00-sun:04:00"  # UTC time
+skip_final_snapshot    = false            # Don't skip snapshot on destroy
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ElastiCache Redis Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+redis_version         = "7.0"
+redis_node_type       = "cache.t3.micro"  # 0.5GB, 1 vCPU
+redis_num_nodes       = 3                 # Multi-AZ (1 primary + 2 replicas)
+redis_auth_token      = "GenerateStrongTokenHere123!@#"  # CHANGE THIS!
+redis_snapshot_retention = 5              # Days
+redis_snapshot_window = "03:00-04:00"     # UTC time
+
+# ═════════════════════════════════════════════════════════════════════════════
+# CloudWatch Configuration
+# ═════════════════════════════════════════════════════════════════════════════
+
+log_retention_days = 30  # CloudWatch log retention
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Additional Tags
+# ═════════════════════════════════════════════════════════════════════════════
+
+additional_tags = {
+  CostCenter = "Engineering"
+  Owner      = "Platform Team"
+  Managed    = "Terraform"
+}

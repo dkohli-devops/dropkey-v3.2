@@ -1,0 +1,332 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# docker-compose.monitoring.yml — Monitoring Stack for DropKey v3.2
+#
+# Services:
+#   • Prometheus — Metrics collection & storage
+#   • Grafana — Dashboards & visualization
+#   • AlertManager — Alert management
+#   • Node Exporter — Host metrics
+#   • PostgreSQL Exporter — Database metrics
+#   • Redis Exporter — Cache metrics
+#   • cAdvisor — Container metrics
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+# ═════════════════════════════════════════════════════════════════════════════
+
+version: '3.8'
+
+services:
+  # ═════════════════════════════════════════════════════════════════════════
+  # Prometheus — Metrics Collection
+  # ═════════════════════════════════════════════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: dropkey_prometheus
+    hostname: prometheus
+    
+    ports:
+      - "9090:9090"
+    
+    environment:
+      TZ: UTC
+    
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alert_rules.yml:/etc/prometheus/rules/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    
+    networks:
+      - dropkey_network
+    
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9090/-/healthy']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Grafana — Dashboards & Visualization
+  # ═════════════════════════════════════════════════════════════════════════
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: dropkey_grafana
+    hostname: grafana
+    
+    ports:
+      - "3000:3000"
+    
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ADMIN_USER: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+      GF_PATHS_PROVISIONING: /etc/grafana/provisioning
+      GF_ANALYTICS_REPORTING_ENABLED: 'false'
+    
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    
+    networks:
+      - dropkey_network
+    
+    depends_on:
+      - prometheus
+    
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:3000/api/health || exit 1']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # AlertManager — Alert Management
+  # ═════════════════════════════════════════════════════════════════════════
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: dropkey_alertmanager
+    hostname: alertmanager
+    
+    ports:
+      - "9093:9093"
+    
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    
+    networks:
+      - dropkey_network
+    
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9093/-/healthy']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Node Exporter — Host Metrics
+  # ═════════════════════════════════════════════════════════════════════════
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: dropkey_node_exporter
+    hostname: node-exporter
+    
+    ports:
+      - "9100:9100"
+    
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    
+    networks:
+      - dropkey_network
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # PostgreSQL Exporter — Database Metrics
+  # ═════════════════════════════════════════════════════════════════════════
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: dropkey_postgres_exporter
+    hostname: postgres-exporter
+    
+    ports:
+      - "9187:9187"
+    
+    environment:
+      DATA_SOURCE_NAME: postgresql://dropkey:dropkey@postgres:5432/dropkey?sslmode=disable
+    
+    networks:
+      - dropkey_network
+    
+    depends_on:
+      - postgres
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Redis Exporter — Cache Metrics
+  # ═════════════════════════════════════════════════════════════════════════
+
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: dropkey_redis_exporter
+    hostname: redis-exporter
+    
+    ports:
+      - "9121:9121"
+    
+    environment:
+      REDIS_ADDR: redis:6379
+    
+    command: -redis.addr=redis:6379
+    
+    networks:
+      - dropkey_network
+    
+    depends_on:
+      - redis
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+        reservations:
+          cpus: '0.25'
+          memory: 64M
+    
+    profiles:
+      - redis
+      - production
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # cAdvisor — Container Metrics
+  # ═════════════════════════════════════════════════════════════════════════
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: dropkey_cadvisor
+    hostname: cadvisor
+    
+    ports:
+      - "8080:8080"
+    
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    
+    networks:
+      - dropkey_network
+    
+    restart: unless-stopped
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+volumes:
+  prometheus_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PROMETHEUS_DATA_PATH:-./data/prometheus}
+  
+  alertmanager_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${ALERTMANAGER_DATA_PATH:-./data/alertmanager}
+  
+  grafana_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${GRAFANA_DATA_PATH:-./data/grafana}
+
+networks:
+  dropkey_network:
+    external: true

@@ -1,0 +1,121 @@
+version: '3.9'
+
+# ═════════════════════════════════════════════════════════════════════════════
+# docker-compose.yml — DropKey v3.2 Complete Stack
+#
+# Services:
+# - app: DropKey application
+# - db: PostgreSQL database
+# - redis: Redis cache
+# - adminer: Database admin (development only)
+# ═════════════════════════════════════════════════════════════════════════════
+
+services:
+  # ─────────────────────────────────────────────────────────────────────────
+  # PostgreSQL Database
+  # ─────────────────────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: dropkey-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dropkey}
+      POSTGRES_USER: ${POSTGRES_USER:-dropkey}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dropkey123}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dropkey}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dropkey
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Redis Cache
+  # ─────────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: dropkey-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - dropkey
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # DropKey Application
+  # ─────────────────────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dropkey-app
+    ports:
+      - "8000:8000"
+    environment:
+      DROPKEY_ENVIRONMENT: ${DROPKEY_ENVIRONMENT:-development}
+      DROPKEY_DEBUG: ${DROPKEY_DEBUG:-false}
+      DROPKEY_DATABASE_ENABLED: "true"
+      DROPKEY_DATABASE_URL: postgresql://${POSTGRES_USER:-dropkey}:${POSTGRES_PASSWORD:-dropkey123}@db:5432/${POSTGRES_DB:-dropkey}
+      DROPKEY_REDIS_ENABLED: "true"
+      DROPKEY_REDIS_URL: redis://redis:6379/0
+      DROPKEY_JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-key-change-in-production}
+    
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/live"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    
+    volumes:
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    
+    networks:
+      - dropkey
+    
+    restart: unless-stopped
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Adminer (Database Admin) - Development Only
+  # ─────────────────────────────────────────────────────────────────────────
+  adminer:
+    image: adminer:latest
+    container_name: dropkey-adminer
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    networks:
+      - dropkey
+    profiles:
+      - dev
+
+networks:
+  dropkey:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local

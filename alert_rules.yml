@@ -1,0 +1,282 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# alert_rules.yml — Prometheus Alert Rules for DropKey v3.2
+#
+# Alert groups:
+#   • Application alerts
+#   • Infrastructure alerts
+#   • Database alerts
+#   • Performance alerts
+# ═════════════════════════════════════════════════════════════════════════════
+
+groups:
+  # ═════════════════════════════════════════════════════════════════════════
+  # Application Alerts
+  # ═════════════════════════════════════════════════════════════════════════
+
+  - name: application
+    interval: 30s
+    rules:
+      - alert: ApplicationDown
+        expr: up{job="dropkey"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: application
+        annotations:
+          summary: "Application is down"
+          description: "DropKey application is not responding (instance: {{ $labels.instance }})"
+
+      - alert: HighErrorRate
+        expr: |
+          (sum(rate(http_requests_total{job="dropkey",status=~"5.."}[5m])) by (job)) /
+          (sum(rate(http_requests_total{job="dropkey"}[5m])) by (job)) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="dropkey"}[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High request latency"
+          description: "P95 latency is {{ $value }}s, threshold is 1.0s"
+
+      - alert: TooManyRequests
+        expr: rate(http_requests_total{job="dropkey"}[1m]) > 1000
+        for: 2m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High request rate"
+          description: "Request rate is {{ $value | humanize }} req/s"
+
+      - alert: HighExceptionRate
+        expr: rate(exceptions_total{job="dropkey"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High exception rate"
+          description: "Exception rate is {{ $value | humanize }} /s"
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Database Alerts
+  # ═════════════════════════════════════════════════════════════════════════
+
+  - name: database
+    interval: 30s
+    rules:
+      - alert: DatabaseDown
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "PostgreSQL database is down"
+          description: "PostgreSQL is not responding"
+
+      - alert: DatabaseSlowQueries
+        expr: |
+          histogram_quantile(0.95, rate(db_query_duration_seconds_bucket{job="dropkey"}[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "P95 query time is {{ $value }}s, threshold is 1.0s"
+
+      - alert: DatabaseConnectionPoolAlmostFull
+        expr: db_connections_active / db_pool_size > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database connection pool almost full"
+          description: "Connection pool is {{ $value | humanizePercentage }} full"
+
+      - alert: DatabaseConnectionPoolFull
+        expr: db_connections_active >= db_pool_size
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool is full"
+          description: "No more database connections available"
+
+      - alert: DatabaseHighErrorRate
+        expr: |
+          (sum(rate(db_queries_total{job="dropkey",status="error"}[5m])) by (job)) /
+          (sum(rate(db_queries_total{job="dropkey"}[5m])) by (job)) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High database error rate"
+          description: "Error rate is {{ $value | humanizePercentage }}"
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Cache/Redis Alerts
+  # ═════════════════════════════════════════════════════════════════════════
+
+  - name: redis
+    interval: 30s
+    rules:
+      - alert: RedisDown
+        expr: up{job="redis"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Redis is down"
+          description: "Redis cache is not responding (non-critical)"
+
+      - alert: CacheLowHitRate
+        expr: |
+          (sum(rate(cache_hits_total{job="dropkey"}[5m])) by (job)) /
+          (sum(rate(cache_hits_total{job="dropkey"} + cache_misses_total{job="dropkey"}[5m])) by (job)) < 0.5
+        for: 10m
+        labels:
+          severity: info
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Infrastructure Alerts
+  # ═════════════════════════════════════════════════════════════════════════
+
+  - name: infrastructure
+    interval: 30s
+    rules:
+      - alert: HighMemoryUsage
+        expr: process_memory_bytes / (1024^3) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage"
+          description: "Process is using {{ $value | humanize }}GB of memory"
+
+      - alert: CriticalMemoryUsage
+        expr: process_memory_bytes / (1024^3) > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Critical memory usage"
+          description: "Process is using {{ $value | humanize }}GB of memory"
+
+      - alert: HighCPUUsage
+        expr: rate(process_cpu_percent[5m]) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      - alert: LowDiskSpace
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Low disk space"
+          description: "Disk space is {{ $value | humanizePercentage }} free"
+
+      - alert: CriticalDiskSpace
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Critical disk space"
+          description: "Disk space is {{ $value | humanizePercentage }} free"
+
+      - alert: HighLoadAverage
+        expr: node_load5 > 4
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High load average"
+          description: "Load average (5m) is {{ $value }}"
+
+  # ═════════════════════════════════════════════════════════════════════════
+  # Service Availability Alerts
+  # ═════════════════════════════════════════════════════════════════════════
+
+  - name: availability
+    interval: 30s
+    rules:
+      - alert: ServiceNotReady
+        expr: changes(http_requests_total{job="dropkey"}[5m]) == 0 and up{job="dropkey"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          component: availability
+        annotations:
+          summary: "Service not processing requests"
+          description: "No requests processed in the last 5 minutes"
+
+      - alert: NoActiveConnections
+        expr: active_connections == 0
+        for: 10m
+        labels:
+          severity: info
+          component: availability
+        annotations:
+          summary: "No active connections"
+          description: "No active WebSocket connections (may be normal during low traffic)"
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Recording Rules (for performance)
+# ═════════════════════════════════════════════════════════════════════════════
+
+  - name: recording_rules
+    interval: 30s
+    rules:
+      - record: job:http_requests:rate5m
+        expr: sum(rate(http_requests_total[5m])) by (job, status)
+
+      - record: job:http_latency:p95
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) by (job)
+
+      - record: job:http_latency:p99
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) by (job)
+
+      - record: job:db_query_latency:p95
+        expr: histogram_quantile(0.95, rate(db_query_duration_seconds_bucket[5m])) by (job, operation)
+
+      - record: job:cache_hit_rate:5m
+        expr: |
+          (sum(rate(cache_hits_total[5m])) by (job)) /
+          (sum(rate(cache_hits_total[5m] + cache_misses_total[5m])) by (job))
+
+      - record: job:error_rate:5m
+        expr: |
+          (sum(rate(http_requests_total{status=~"5.."}[5m])) by (job)) /
+          (sum(rate(http_requests_total[5m])) by (job))

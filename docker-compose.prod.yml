@@ -1,0 +1,147 @@
+# ═════════════════════════════════════════════════════════════════════════════
+# docker-compose.prod.yml — DropKey v3.2 Production Configuration Override
+#
+# USAGE:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# FEATURES:
+#   • Production environment settings
+#   • Higher resource limits
+#   • Persistent data strategy
+#   • Security hardening
+#   • Production logging
+#   • Health check tuning
+# ═════════════════════════════════════════════════════════════════════════════
+
+version: '3.8'
+
+services:
+  dropkey:
+    # Production settings override
+    environment:
+      - DROPKEY_ENVIRONMENT=production
+      - DROPKEY_DEBUG=false
+      - DROPKEY_LOG_LEVEL=INFO
+      - DROPKEY_DATABASE_POOL_SIZE=20
+      - DROPKEY_RATE_LIMITING_ENABLED=true
+      - DROPKEY_RATE_LIMITING_RPM=100
+      - DROPKEY_CORS_ORIGINS=${PRODUCTION_DOMAIN:-https://dropkey.io}
+      - WORKERS=8
+    
+    # Higher resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    
+    # Production restart policy
+    restart: always
+    
+    # Production health check (more relaxed timing)
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -f
+        - --max-time
+        - "10"
+        - http://localhost:8000/health/live
+      interval: 60s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    
+    # Production command (no reload)
+    command: >
+      sh -c "
+        alembic upgrade head &&
+        python -m uvicorn main:app 
+        --host 0.0.0.0 
+        --port 8000 
+        --workers 8 
+        --log-level info
+      "
+  
+  postgres:
+    # Production environment
+    environment:
+      POSTGRES_INITDB_ARGS: >
+        -c shared_buffers=512MB
+        -c max_connections=300
+        -c effective_cache_size=2GB
+        -c work_mem=16MB
+        -c maintenance_work_mem=256MB
+        -c random_page_cost=1.1
+        -c effective_io_concurrency=200
+        -c wal_buffers=16MB
+        -c default_statistics_target=100
+        -c max_wal_size=4GB
+        -c min_wal_size=1GB
+    
+    # Higher resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 4G
+        reservations:
+          cpus: '2.0'
+          memory: 1G
+    
+    # Production restart policy
+    restart: always
+    
+    # Production health check (more relaxed)
+    healthcheck:
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    # Production settings
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    
+    # Higher resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    
+    # Production restart policy
+    restart: always
+    
+    # Ensure profile enabled in production
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=${NFS_SERVER:-localhost},vers=4,soft,timeo=180,bg,tcp,rw
+      device: ':/exports/postgres_data'
+
+  redis_data:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: addr=${NFS_SERVER:-localhost},vers=4,soft,timeo=180,bg,tcp,rw
+      device: ':/exports/redis_data'

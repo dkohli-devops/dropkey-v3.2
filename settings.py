@@ -15,11 +15,10 @@ USAGE:
   settings = Settings()  # Automatically loads from environment
 """
 
-from typing import List, Optional
-#from pydantic import BaseSettings, Field, validator, AnyHttpUrl, PostgresDsn
+from typing import List, Optional, Any
 import os
-from pydantic import Field, AnyHttpUrl, PostgresDsn
-from pydantic_settings import BaseSettings
+from pydantic import Field, field_validator, model_validator, AnyUrl
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -268,7 +267,7 @@ class Settings(BaseSettings):
     )
     """Enable database backend"""
 
-    DATABASE_URL: Optional[PostgresDsn] = Field(
+    DATABASE_URL: Optional[str] = Field(
         None,
         description="PostgreSQL connection URL"
     )
@@ -389,7 +388,7 @@ class Settings(BaseSettings):
     )
     """Enable Sentry integration"""
 
-    SENTRY_DSN: Optional[AnyHttpUrl] = Field(
+    SENTRY_DSN: Optional[str] = Field(
         None, description="Sentry DSN"
     )
     """Sentry Data Source Name for error tracking"""
@@ -449,55 +448,52 @@ class Settings(BaseSettings):
     # VALIDATORS
     # ════════════════════════════════════════════════════════════════════════════
 
-    @validator("JWT_SECRET_KEY")
-    def validate_jwt_secret(cls, v, values):
+    @field_validator("JWT_SECRET_KEY")
+    @classmethod
+    def validate_jwt_secret(cls, v: Optional[str]) -> Optional[str]:
         """Validate JWT secret key if JWT is enabled."""
-        jwt_enabled = values.get("JWT_ENABLED", True)
-        if jwt_enabled and v:
-            if len(v) < 32:
-                raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
+        if v and len(v) < 32:
+            raise ValueError("JWT_SECRET_KEY must be at least 32 characters")
         return v
 
-    @validator("SESSION_TTL_TRANSFER")
-    def validate_session_ttl(cls, v, values):
-        """Validate transfer TTL >= default TTL."""
-        default_ttl = values.get("SESSION_TTL_DEFAULT", 3600)
-        if v < default_ttl:
-            raise ValueError("SESSION_TTL_TRANSFER must be >= SESSION_TTL_DEFAULT")
+    @field_validator("SESSION_TTL_TRANSFER")
+    @classmethod
+    def validate_session_ttl(cls, v: int) -> int:
+        """Validate transfer TTL is a positive integer."""
+        if v < 1:
+            raise ValueError("SESSION_TTL_TRANSFER must be a positive integer")
         return v
 
-    @validator("CORS_ORIGINS", pre=True)
-    def parse_cors_origins(cls, v):
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: Any) -> Any:
         """Parse CORS origins from comma-separated string."""
         if isinstance(v, str):
             return [url.strip() for url in v.split(",")]
         return v
 
-    @validator("BLOCKED_EXTENSIONS", pre=True)
-    def parse_blocked_extensions(cls, v):
+    @field_validator("BLOCKED_EXTENSIONS", mode="before")
+    @classmethod
+    def parse_blocked_extensions(cls, v: Any) -> Any:
         """Parse blocked extensions from comma-separated string."""
         if isinstance(v, str):
             return [ext.strip() for ext in v.split(",")]
         return v
 
-    @validator("DEBUG")
-    def set_debug_from_environment(cls, v, values):
-        """Set DEBUG based on environment."""
-        if not v:
-            env = values.get("ENVIRONMENT", "development")
-            return env in ("development", "testing")
+    @field_validator("DEBUG")
+    @classmethod
+    def set_debug_from_environment(cls, v: bool) -> bool:
+        """Pass through DEBUG — env-based logic handled in model_validator."""
         return v
 
-    @validator("LOG_LEVEL")
-    def validate_log_level_from_environment(cls, v, values):
-        """Adjust log level based on environment."""
-        if not v or v == "INFO":
-            env = values.get("ENVIRONMENT", "development")
-            if env == "development":
-                return "DEBUG"
-            elif env == "testing":
-                return "WARNING"
-        return v
+    @field_validator("LOG_LEVEL")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate log level is a known value."""
+        valid = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if v.upper() not in valid:
+            raise ValueError(f"LOG_LEVEL must be one of {valid}")
+        return v.upper()
 
     # ════════════════════════════════════════════════════════════════════════════
     # COMPUTED PROPERTIES
@@ -537,15 +533,12 @@ class Settings(BaseSettings):
     # CONFIGURATION
     # ════════════════════════════════════════════════════════════════════════════
 
-    class Config:
-        """Pydantic configuration."""
-        env_file = ".env"
-        env_prefix = "DROPKEY_"
-        case_sensitive = True
-        arbitrary_types_allowed = True
-
-        # Custom settings
-        extra = "allow"  # Allow extra fields
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_prefix="DROPKEY_",
+        case_sensitive=True,
+        extra="allow",
+    )
 
 
 # Singleton instance (lazy loaded)

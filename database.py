@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     AsyncEngine,
 )
-from sqlalchemy.orm import declarative_base, Session
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool, QueuePool
 from sqlalchemy.future import select
 
@@ -91,47 +91,16 @@ class ModelValidationError(DatabaseException):
 # BASE MODEL
 # ═════════════════════════════════════════════════════════════════════════════
 
-# Create declarative base for all models
-Base = declarative_base()
+# Single shared Base — imported from models package so all ORM models
+# (User, TransferSession, TransferFile, etc.) are registered here.
+# CRITICAL: Do NOT create a second declarative_base() — tables won't be created.
+from models.base import Base, BaseModel  # noqa: E402  (import after logging setup)
+# Import all ORM models so SQLAlchemy registers their tables in Base.metadata
+import models.user          # noqa: F401
+import models.transfer_models  # noqa: F401
 
 
-class BaseModel(Base):
-    """
-    Abstract base model for all database models.
-    
-    Provides:
-    - id: Primary key
-    - created_at: Creation timestamp
-    - updated_at: Last update timestamp
-    """
-
-    __abstract__ = True
-
-    id = Column(Integer, primary_key=True, index=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-
-    def __repr__(self) -> str:
-        """String representation."""
-        return f"<{self.__class__.__name__}(id={self.id})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert model to dictionary."""
-        return {
-            column.name: getattr(self, column.name)
-            for column in self.__table__.columns
-        }
-
-    @property
-    def is_new(self) -> bool:
-        """Check if model is newly created (not yet in database)."""
-        return self.id is None
-
-    @property
-    def age_seconds(self) -> float:
-        """Get age of record in seconds."""
-        return (datetime.utcnow() - self.created_at).total_seconds()
-
+# BaseModel is imported from models.base above — no duplicate needed.
 
 # ═════════════════════════════════════════════════════════════════════════════
 # REPOSITORY PATTERN

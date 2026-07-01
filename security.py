@@ -43,7 +43,7 @@ except ImportError:
     HAS_JWT = False
     jwt = None
 
-from config import Settings
+from settings import Settings
 from logger import audit_log
 
 log = logging.getLogger("dropkey.security")

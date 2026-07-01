@@ -114,7 +114,7 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing session manager...")
         session_manager = SessionManager(
             session_timeout=Config.SESSION_TIMEOUT,
-            max_sessions_per_user=Config.MAX_SESSIONS_PER_USER,
+            max_sessions_per_user=Config.MAX_SESSION_PER_USER,
             cache=cache if Config.REDIS_ENABLED else None,
         )
         logger.info("✓ Session manager initialized")
